@@ -1,11 +1,18 @@
 /*
  Famous Dog Boji
  010000100110111101101010011010010011001001110100011010000110010101001101011011110110111101101110
- The Zero Killer BOJI
  #BojiTokentotheMoon
 
 www.twitter.com/Bojitoken
 https://t.me/bojitoken
+
+2% Charity Fee
+4% Marketing Fee
+3% Liquidity Fee
+1% Holder Reward Distribution
+
+----RUNBOJI----
+
 */
 
 // SPDX-License-Identifier: Unlicensed
@@ -44,8 +51,10 @@ contract BOJI is Context, IERC20, Ownable
     string private _symbol 	= 'BOJI';
     uint8 private _decimals = 9;
 
-    uint256 private _taxFee 		= 1;
-    uint256 private _teamFee 		= 8;
+    uint256 public _taxFee 		= 1;
+    uint256 public _teamFee 		= 6;
+    uint256 public _liquidityFee =   3;
+    uint256 private _previousLiquidityFee = _liquidityFee;
     uint256 private _previousTaxFee 	= _taxFee;
     uint256 private _previousTeamFee 	= _teamFee;
 
@@ -179,7 +188,7 @@ contract BOJI is Context, IERC20, Ownable
     function deliver(uint256 tAmount) public {
         address sender = _msgSender();
         require(!_isExcluded[sender], "Excluded addresses cannot call this function");
-        (uint256 rAmount,,,,) = _getValues(tAmount);
+        (uint256 rAmount,,,,,) = _getValues(tAmount);
         _rOwned[sender] = _rOwned[sender].sub(rAmount);
         _rTotal = _rTotal.sub(rAmount);
         _tFeeTotal = _tFeeTotal.add(tAmount);
@@ -188,10 +197,10 @@ contract BOJI is Context, IERC20, Ownable
     function reflectionFromToken(uint256 tAmount, bool deductTransferFee) public view returns(uint256) {
         require(tAmount <= _tTotal, "Amount must be less than supply");
         if (!deductTransferFee) {
-            (uint256 rAmount,,,,) = _getValues(tAmount);
+            (uint256 rAmount,,,,,) = _getValues(tAmount);
             return rAmount;
         } else {
-            (,uint256 rTransferAmount,,,) = _getValues(tAmount);
+            (,uint256 rTransferAmount,,,,) = _getValues(tAmount);
             return rTransferAmount;
         }
     }
@@ -227,18 +236,21 @@ contract BOJI is Context, IERC20, Ownable
     }
 
     function removeAllFee() private {
-        if(_taxFee == 0 && _teamFee == 0) return;
+        if(_taxFee == 0 && _teamFee == 0 && _liquidityFee == 0) return;
 
         _previousTaxFee = _taxFee;
         _previousTeamFee = _teamFee;
+        _previousLiquidityFee = _liquidityFee;
 
         _taxFee = 0;
         _teamFee = 0;
+        _liquidityFee = 0;
     }
 
     function restoreAllFee() private {
         _taxFee = _previousTaxFee;
         _teamFee = _previousTeamFee;
+        _liquidityFee = _previousLiquidityFee;
     }
 
     function isExcludedFromFee(address account) public view returns(bool) {
@@ -369,37 +381,41 @@ contract BOJI is Context, IERC20, Ownable
     }
 
     function _transferStandard(address sender, address recipient, uint256 tAmount) private {
-        (uint256 rAmount, uint256 rTransferAmount, uint256 rFee, uint256 tTransferAmount, uint256 tFee) = _getValues(tAmount);
+        (uint256 rAmount, uint256 rTransferAmount, uint256 rFee, uint256 tTransferAmount, uint256 tFee, uint256 tLiquidity) = _getValues(tAmount);
         _rOwned[sender] = _rOwned[sender].sub(rAmount);
         _rOwned[recipient] = _rOwned[recipient].add(rTransferAmount);
+        _takeLiquidity(tLiquidity);
         _reflectFee(rFee, tFee);
         emit Transfer(sender, recipient, tTransferAmount);
     }
 
     function _transferToExcluded(address sender, address recipient, uint256 tAmount) private {
-        (uint256 rAmount, uint256 rTransferAmount, uint256 rFee, uint256 tTransferAmount, uint256 tFee) = _getValues(tAmount);
+        (uint256 rAmount, uint256 rTransferAmount, uint256 rFee, uint256 tTransferAmount, uint256 tFee, uint256 tLiquidity) = _getValues(tAmount);
         _rOwned[sender] = _rOwned[sender].sub(rAmount);
         _tOwned[recipient] = _tOwned[recipient].add(tTransferAmount);
         _rOwned[recipient] = _rOwned[recipient].add(rTransferAmount);
+        _takeLiquidity(tLiquidity);
         _reflectFee(rFee, tFee);
         emit Transfer(sender, recipient, tTransferAmount);
     }
 
     function _transferFromExcluded(address sender, address recipient, uint256 tAmount) private {
-        (uint256 rAmount, uint256 rTransferAmount, uint256 rFee, uint256 tTransferAmount, uint256 tFee) = _getValues(tAmount);
+        (uint256 rAmount, uint256 rTransferAmount, uint256 rFee, uint256 tTransferAmount, uint256 tFee, uint256 tLiquidity) = _getValues(tAmount);
         _tOwned[sender] = _tOwned[sender].sub(tAmount);
         _rOwned[sender] = _rOwned[sender].sub(rAmount);
         _rOwned[recipient] = _rOwned[recipient].add(rTransferAmount);
+        _takeLiquidity(tLiquidity);
         _reflectFee(rFee, tFee);
         emit Transfer(sender, recipient, tTransferAmount);
     }
 
     function _transferBothExcluded(address sender, address recipient, uint256 tAmount) private {
-        (uint256 rAmount, uint256 rTransferAmount, uint256 rFee, uint256 tTransferAmount, uint256 tFee) = _getValues(tAmount);
+        (uint256 rAmount, uint256 rTransferAmount, uint256 rFee, uint256 tTransferAmount, uint256 tFee, uint256 tLiquidity) = _getValues(tAmount);
         _tOwned[sender] = _tOwned[sender].sub(tAmount);
         _rOwned[sender] = _rOwned[sender].sub(rAmount);
         _tOwned[recipient] = _tOwned[recipient].add(tTransferAmount);
         _rOwned[recipient] = _rOwned[recipient].add(rTransferAmount);
+        _takeLiquidity(tLiquidity);
         _reflectFee(rFee, tFee);
         emit Transfer(sender, recipient, tTransferAmount);
     }
@@ -418,25 +434,28 @@ contract BOJI is Context, IERC20, Ownable
     //to recieve ETH from uniswapV2Router when swaping
     receive() external payable {}
 
-    function _getValues(uint256 tAmount) private view returns (uint256, uint256, uint256, uint256, uint256) {
-        (uint256 tTransferAmount, uint256 tFee, uint256 tTeamFee) = _getTValues(tAmount, _taxFee, _teamFee);
+    function _getValues(uint256 tAmount) private view returns (uint256, uint256, uint256, uint256, uint256, uint256) {
+        (uint256 tTransferAmount, uint256 tFee, uint256 tTeamFee, uint256 tLiquidity) = _getTValues(tAmount, _taxFee, _teamFee, _liquidityFee);
         uint256 currentRate =  _getRate();
-        (uint256 rAmount, uint256 rTransferAmount, uint256 rFee) = _getRValues(tAmount, tFee, currentRate, tTeamFee);
-        return (rAmount, rTransferAmount, rFee, tTransferAmount, tFee);
+        (uint256 rAmount, uint256 rTransferAmount, uint256 rFee) = _getRValues(tAmount, tFee, currentRate, tTeamFee, tLiquidity);
+        return (rAmount, rTransferAmount, rFee, tTransferAmount, tFee, tLiquidity);
     }
 
-    function _getTValues(uint256 tAmount, uint256 taxFee, uint256 teamFee) private pure returns (uint256, uint256, uint256) {
+    function _getTValues(uint256 tAmount, uint256 taxFee, uint256 teamFee, uint256 liquidityFee) private pure returns (uint256, uint256, uint256, uint256) {
         uint256 tFee = tAmount.mul(taxFee).div(100);
         uint256 tTeamFee = tAmount.mul(teamFee).div(100);
+        uint256 tLiquidity = tAmount.mul(liquidityFee).div(100);
         uint256 tTransferAmount = tAmount.sub(tFee).sub(tTeamFee);
-        return (tTransferAmount, tFee, tTeamFee);
+        tTransferAmount = tTransferAmount.sub(tLiquidity);
+        return (tTransferAmount, tFee, tTeamFee, tLiquidity);
     }
 
-    function _getRValues(uint256 tAmount, uint256 tFee, uint256 currentRate, uint256 tTeamFee) private pure returns (uint256, uint256, uint256) {
+    function _getRValues(uint256 tAmount, uint256 tFee, uint256 currentRate, uint256 tTeamFee, uint256 tLiquidity) private pure returns (uint256, uint256, uint256) {
         uint256 rAmount = tAmount.mul(currentRate);
         uint256 rFee = tFee.mul(currentRate);
         uint256 rTeamFee = tTeamFee.mul(currentRate);
-        uint256 rTransferAmount = rAmount.sub(rFee).sub(rTeamFee);
+        uint256 rLiquidity = tLiquidity.mul(currentRate);
+        uint256 rTransferAmount = rAmount.sub(rFee).sub(rTeamFee).sub(rLiquidity);
         return (rAmount, rTransferAmount, rFee);
     }
 
@@ -487,9 +506,17 @@ contract BOJI is Context, IERC20, Ownable
         _teamFee = teamFee;
     }
 
+    function setLiquidityFeePercent(uint256 liquidityFee) external onlyOwner() {
+        _liquidityFee = liquidityFee;
+    }
+
     function _setOpsTeamWallet(address payable opsTeamWalletAddress) external onlyOwner() {
         _opsTeamWalletAddress = opsTeamWalletAddress;
     }
+
+    function setnumOfTokensToExchangeForTeam(uint256 numOfTokensToExchangeForTeam) external onlyOwner() {
+        _numOfTokensToExchangeForTeam = numOfTokensToExchangeForTeam * (10**9);
+    }   
 
     function _setMaxTxAmount(uint256 maxTxAmount) external onlyOwner()
     {
@@ -497,4 +524,13 @@ contract BOJI is Context, IERC20, Ownable
         uint256 _tempMaxTxAmount 	= maxTxAmount * (10**18);
         _maxTxAmount = _tempMaxTxAmount;
     }
+
+    function _takeLiquidity(uint256 tLiquidity) private {
+        uint256 currentRate =  _getRate();
+        uint256 rLiquidity = tLiquidity.mul(currentRate);
+        _rOwned[address(this)] = _rOwned[address(this)].add(rLiquidity);
+        if(_isExcluded[address(this)])
+            _tOwned[address(this)] = _tOwned[address(this)].add(tLiquidity);
+    }
+
 }
